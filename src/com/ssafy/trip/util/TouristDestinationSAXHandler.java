@@ -34,6 +34,11 @@ public class TouristDestinationSAXHandler extends DefaultHandler {
 		if (qName.equals("record")) {
 			// complete code #04
 			// tripDto 객체를 생성(이미지 정보 세팅)하고 trips List에 추가하세요.
+			tripDto = new TripDto(num++);
+			
+			tripDto.setImg("img/" + tripDto.getNum() + ".jpg");
+			
+			trips.add(tripDto);
 		}
 	}
 
@@ -42,6 +47,7 @@ public class TouristDestinationSAXHandler extends DefaultHandler {
 		if (qName.equals("관광지명")) {
 			// complete code #05
 			// 관광지명 항목을 처리하세요.
+			tripDto.setTouristDestination(temp);
 		} else if (qName.equals("소재지도로명주소")) {
 			tripDto.setStreetAddress(temp);
 		} else if (qName.equals("소재지지번주소")) {
@@ -52,11 +58,15 @@ public class TouristDestinationSAXHandler extends DefaultHandler {
 		} else if (qName.equals("경도")) {
 			// complete code #06
 			// 경도 항목을 처리하세요.
+	        if (temp.length() != 0) {
+	            tripDto.setLng(Double.parseDouble(temp));
+	        }
 		} else if (qName.equals("관광지소개")) {
 			tripDto.setInfo(temp);
 		} else if (qName.equals("관리기관전화번호")) {
 			// complete code #07
 			// 관리기관전화번호 항목을 처리하세요.
+			tripDto.setTel(temp);
 		}
 	}
 
