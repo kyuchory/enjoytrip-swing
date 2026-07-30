@@ -1,15 +1,16 @@
 package com.ssafy.trip.view;
 
 import java.awt.BorderLayout;
+import java.awt.FlowLayout;
 import java.awt.GridLayout;
 import java.awt.Image;
 import java.awt.Label;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.File;
 import java.util.List;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.ExecutionException;
 
 import javax.swing.BorderFactory;
 import javax.swing.ImageIcon;
@@ -19,12 +20,17 @@ import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
+import javax.swing.JTabbedPane;
 import javax.swing.JTable;
 import javax.swing.JTextField;
+import javax.swing.SwingWorker;
 import javax.swing.table.DefaultTableModel;
 
+import com.ssafy.trip.model.dto.StoreDto;
 import com.ssafy.trip.model.dto.TripDto;
 import com.ssafy.trip.model.dto.TripSearchDto;
+import com.ssafy.trip.model.service.StoreService;
+import com.ssafy.trip.model.service.StoreServiceImpl;
 import com.ssafy.trip.model.service.TripService;
 import com.ssafy.trip.model.service.TripServiceImpl;
 
@@ -32,6 +38,7 @@ public class TripInfoView {
 
 	/** model들 */
 	private TripService tripService;
+	private StoreService storeService;
 
 	/** main 화면 */
 	private JFrame frame;
@@ -51,6 +58,15 @@ public class TripInfoView {
 	private JScrollPane tripPan;
 	private String[] title = { "번호", "관광지명", "도로명주소", "지번주소", "전화번호" };
 
+	/** 주변 상권 조회 */
+	private JComboBox<Double> radiusC;
+	private JComboBox<String> categoryC;
+	private JButton storeSearchBt;
+	private JLabel storeStatusL;
+	private DefaultTableModel storeModel;
+	private SwingWorker<List<StoreDto>, Void> storeWorker;
+	private String[] storeTitle = { "상호명", "대분류", "세부 업종", "도로명주소", "거리" };
+
 	/** 검색 조건 */
 	private String key;
 	private String[] choice = { "검색조건선택", "관광지명", "주소" };
@@ -63,6 +79,7 @@ public class TripInfoView {
 	public TripInfoView() {
 		/* Service들 생성 */
 		tripService = new TripServiceImpl();
+		storeService = new StoreServiceImpl();
 
 		/* 메인 화면 설정 */
 		frame = new JFrame("Enjoy! Trip - 즐거운 여행");
@@ -82,6 +99,9 @@ public class TripInfoView {
 
 	private void showTripInfo(int num) {
 		curTrip = tripService.search(num);
+		if (curTrip == null) {
+			return;
+		}
 
 		tripInfoL[0].setText("");
 		tripInfoL[1].setText("");
@@ -110,6 +130,8 @@ public class TripInfoView {
 		Image changeImage = image.getScaledInstance(570, 470, Image.SCALE_SMOOTH);
 		ImageIcon changeIcon = new ImageIcon(changeImage);
 		imgL.setIcon(changeIcon);
+
+		searchNearbyStores();
 	}
 
 	/** 메인 화면인 관광지 목록을 위한 화면 셋팅하는 메서드 */
@@ -157,16 +179,21 @@ public class TripInfoView {
 		rightTop.add(rightTop2);
 		rightTop.add(new Label(""));
 
-		JPanel rightCenter = new JPanel(new BorderLayout());
+		JPanel tripListPanel = new JPanel(new BorderLayout());
 		tripModel = new DefaultTableModel(title, 20);
 		tripTable = new JTable(tripModel);
 		tripPan = new JScrollPane(tripTable);
 		tripTable.setColumnSelectionAllowed(true);
-		rightCenter.add(new JLabel("광광지 정보", JLabel.CENTER), "North");
-		rightCenter.add(tripPan, "Center");
+		tripListPanel.add(new JLabel("관광지 정보", JLabel.CENTER), "North");
+		tripListPanel.add(tripPan, "Center");
+
+		JPanel storePanel = createStorePanel();
+		JTabbedPane resultTabs = new JTabbedPane();
+		resultTabs.addTab("관광지 목록", tripListPanel);
+		resultTabs.addTab("주변 상권", storePanel);
 
 		right.add(rightTop, "North");
-		right.add(rightCenter, "Center");
+		right.add(resultTabs, "Center");
 
 		JPanel mainP = new JPanel(new GridLayout(1, 2));
 
@@ -201,6 +228,117 @@ public class TripInfoView {
 		// 참조코드 종료
 
 		showTrips();
+	}
+
+	private JPanel createStorePanel() {
+		JPanel storePanel = new JPanel(new BorderLayout(0, 5));
+		JPanel storeFilterPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+
+		radiusC = new JComboBox<Double>(new Double[] { 0.5, 1.0, 3.0, 5.0 });
+		radiusC.setSelectedItem(1.0);
+		categoryC = new JComboBox<String>(new String[] {
+				"전체", "음식", "숙박", "소매", "여가·오락", "교육",
+				"보건의료", "수리·개인", "시설관리·임대", "과학·기술"
+		});
+		storeSearchBt = new JButton("주변 검색");
+		storeSearchBt.addActionListener(e -> searchNearbyStores());
+
+		storeFilterPanel.add(new JLabel("반경(km)"));
+		storeFilterPanel.add(radiusC);
+		storeFilterPanel.add(new JLabel("업종"));
+		storeFilterPanel.add(categoryC);
+		storeFilterPanel.add(storeSearchBt);
+
+		storeModel = new DefaultTableModel(storeTitle, 0);
+		JTable storeTable = new JTable(storeModel);
+		storeTable.setAutoCreateRowSorter(true);
+		storeTable.getColumnModel().getColumn(0).setPreferredWidth(120);
+		storeTable.getColumnModel().getColumn(2).setPreferredWidth(120);
+		storeTable.getColumnModel().getColumn(3).setPreferredWidth(260);
+		storeTable.getColumnModel().getColumn(4).setPreferredWidth(60);
+
+		storeStatusL = new JLabel("관광지를 선택하면 주변 상권을 검색합니다.");
+		storeStatusL.setBorder(BorderFactory.createEmptyBorder(3, 8, 5, 8));
+
+		storePanel.add(storeFilterPanel, BorderLayout.NORTH);
+		storePanel.add(new JScrollPane(storeTable), BorderLayout.CENTER);
+		storePanel.add(storeStatusL, BorderLayout.SOUTH);
+		return storePanel;
+	}
+
+	private void searchNearbyStores() {
+		if (curTrip == null || radiusC == null || categoryC == null) {
+			return;
+		}
+		if (storeWorker != null && !storeWorker.isDone()) {
+			storeWorker.cancel(true);
+		}
+
+		final TripDto selectedTrip = curTrip;
+		final double radiusKm = (Double) radiusC.getSelectedItem();
+		final String category = (String) categoryC.getSelectedItem();
+
+		storeSearchBt.setEnabled(false);
+		storeStatusL.setText(selectedTrip.getTouristDestination() + " 주변 상권을 검색 중입니다...");
+		storeModel.setRowCount(0);
+
+		storeWorker = new SwingWorker<List<StoreDto>, Void>() {
+			@Override
+			protected List<StoreDto> doInBackground() throws Exception {
+				return storeService.searchNearby(selectedTrip, radiusKm, category, 100);
+			}
+
+			@Override
+			protected void done() {
+				if (storeWorker != this) {
+					return;
+				}
+				storeSearchBt.setEnabled(true);
+				try {
+					List<StoreDto> stores = get();
+					showStores(stores);
+					storeStatusL.setText(String.format(
+							"%s 반경 %.1fkm · %s · %d개",
+							selectedTrip.getTouristDestination(), radiusKm, category, stores.size()));
+				} catch (CancellationException e) {
+					storeStatusL.setText("주변 상권 검색이 취소되었습니다.");
+				} catch (InterruptedException e) {
+					Thread.currentThread().interrupt();
+					storeStatusL.setText("주변 상권 검색이 중단되었습니다.");
+				} catch (ExecutionException e) {
+					String message = e.getCause() == null ? e.getMessage() : e.getCause().getMessage();
+					storeStatusL.setText("검색 실패: " + message);
+				}
+			}
+		};
+		storeWorker.execute();
+	}
+
+	private void showStores(List<StoreDto> stores) {
+		storeModel.setRowCount(0);
+		for (StoreDto store : stores) {
+			storeModel.addRow(new Object[] {
+					getDisplayStoreName(store),
+					store.getCategoryLarge(),
+					store.getCategorySmall(),
+					store.getAddress(),
+					formatDistance(store.getDistance())
+			});
+		}
+	}
+
+	private String getDisplayStoreName(StoreDto store) {
+		if (store.getBranchName() == null || store.getBranchName().isEmpty()) {
+			return store.getStoreName();
+		}
+		return store.getStoreName() + " " + store.getBranchName();
+	}
+
+	private String formatDistance(double distanceKm) {
+		if (distanceKm < 1.0) {
+			return Math.round(distanceKm * 1000) + "m";
+		}
+		return String.format("%.1fkm", distanceKm);
 	}
 
 	/** 검색 조건에 맞는 관광지 검색 */
