@@ -54,7 +54,10 @@ public class TripDaoImpl implements TripDao {
 		// complete code #03
 		// List<TripDto> tripInfo 로부터 num 에 해당하는 TripDto 정보를 검색하여 return 하도록 코드를 작성하세요.
 		// 해당하는 num이 없을 경우 null을 리턴하세요.
-
+		for (TripDto trip : tripInfo) {
+			if (trip.getNum() == num) return trip;
+		}
+		
 		return null;
 	}
 
